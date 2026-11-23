@@ -94,8 +94,10 @@ const me=()=>S.me||{},notesOf=id=>Object.entries((me().notes||{})[id]||{}).map((
 function toast(m){const t=document.createElement('div');t.className='tt';t.textContent=m;document.body.append(t);setTimeout(()=>t.remove(),2600)}
 /* ---------- quyền xem tài liệu (lớp / học sinh / thời gian) ---------- */
 const dEnd=x=>{const d=new Date(x);d.setHours(23,59,59,999);return d.getTime()},spl=x=>String(x||'').split(',').filter(Boolean);
-function canSee(b){if(S.staff)return true;if(b.hidden)return false;const n=Date.now();if(+b.vfrom&&n<+b.vfrom)return false;if(+b.vto&&n>dEnd(+b.vto))return false;
-const cl=spl(b.vcls),st=spl(b.vstu);if(!cl.length&&!st.length)return true;if(!S.stu)return false;const sid=S.stu.sid,mine=spl((S.stuCls||{})[sid]);return st.includes(sid)||cl.some(c=>mine.includes(c))}
+const inW=(f,t)=>{const n=Date.now();return !(+f&&n<+f)&&!(+t&&n>dEnd(+t))};
+function canSee(b){if(S.staff)return true;if(b.hidden)return false;const cl=spl(b.vcls),st=spl(b.vstu),W=b.vcw||{};if(!cl.length&&!st.length)return inW(b.vfrom,b.vto);
+if(!S.stu)return false;const sid=S.stu.sid,mine=spl((S.stuCls||{})[sid]);if(st.includes(sid)&&inW(b.vfrom,b.vto))return true;
+return cl.some(c=>mine.includes(c)&&(W[c]?inW(W[c].f,W[c].t):inW(b.vfrom,b.vto)))}
 function visBooks(){return(S.raw||[]).filter(canSee)}
 /* ---------- dữ liệu ---------- */
 let off=[];
