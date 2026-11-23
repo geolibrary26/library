@@ -92,13 +92,18 @@ const cnt=id=>S.books.filter(b=>catOf(b).id==id).length;
 const curName=()=>S.stu?((S.stu.sids.find(x=>x.id==S.stu.sid)||{}).name||''):(S.user&&(S.user.displayName||S.user.email))||'';
 const me=()=>S.me||{},notesOf=id=>Object.entries((me().notes||{})[id]||{}).map(([k,v])=>({k,...v})).sort((a,b)=>b.t-a.t);
 function toast(m){const t=document.createElement('div');t.className='tt';t.textContent=m;document.body.append(t);setTimeout(()=>t.remove(),2600)}
+/* ---------- quyền xem tài liệu (lớp / học sinh / thời gian) ---------- */
+const dEnd=x=>{const d=new Date(x);d.setHours(23,59,59,999);return d.getTime()},spl=x=>String(x||'').split(',').filter(Boolean);
+function canSee(b){if(S.staff)return true;if(b.hidden)return false;const n=Date.now();if(+b.vfrom&&n<+b.vfrom)return false;if(+b.vto&&n>dEnd(+b.vto))return false;
+const cl=spl(b.vcls),st=spl(b.vstu);if(!cl.length&&!st.length)return true;if(!S.stu)return false;const sid=S.stu.sid,mine=spl((S.stuCls||{})[sid]);return st.includes(sid)||cl.some(c=>mine.includes(c))}
+function visBooks(){return(S.raw||[]).filter(canSee)}
 /* ---------- dữ liệu ---------- */
 let off=[];
 let ldT=0;
 function load(){off.forEach(f=>f());off=[];clearTimeout(ldT);const D=S.staff?adb:S.stu?db:null;if(!D){S.ready=true;S.books=[];route(1);return}
 ldT=setTimeout(()=>{if(!S.ready){S.libErr=true;S.ready=true;route(1)}},12000);
 const on=(r,f)=>{r.on('value',f,e=>{console.warn(e);if(/permission/i.test(e.message||''))S.libErr=true;S.ready=true;route(1)});off.push(()=>r.off('value',f))};
-on(D.ref('lib'),s=>{const v=s.val()||{},o=k=>Object.entries(v[k]||{}).map(([id,x])=>({id,...x}));S.books=o('books').filter(b=>S.staff||!b.hidden);S.news=o('news').sort((a,b)=>b.at-a.at);S.pages=v.pages||{};S.cfg=v.cfg||{};S.stats=v.stats||{};const dc=o('cats').sort((a,b)=>(a.order||0)-(b.order||0));S.dbc=dc.length>0;S.cats=dc.length?dc:DEFC;S.libErr=false;clearTimeout(ldT);const first=!S.ready;S.ready=true;route(first)});
+on(D.ref('lib'),s=>{const v=s.val()||{},o=k=>Object.entries(v[k]||{}).map(([id,x])=>({id,...x}));S.raw=o('books');S.stuCls=v.stuCls||{};S.locked=v.locked||{};S.books=visBooks();S.news=o('news').sort((a,b)=>b.at-a.at);S.pages=v.pages||{};S.cfg=v.cfg||{};S.stats=v.stats||{};const dc=o('cats').sort((a,b)=>(a.order||0)-(b.order||0));S.dbc=dc.length>0;S.cats=dc.length?dc:DEFC;S.libErr=false;S.libLocked=!!(S.stu&&S.locked[S.stu.uid]);if(S.libLocked&&cur)closeRd();clearTimeout(ldT);const first=!S.ready;S.ready=true;route(first)});
 if(S.stu){on(db.ref('libUser/'+S.stu.uid),s=>{S.me=s.val()||{};route();if(cur)rdNotes()});on(db.ref('libReq/'+S.stu.uid),s=>{S.myReq=s.val()||{};if(location.hash.startsWith('#/request'))route()})}}
 function hit(){try{if(sessionStorage.g)return;const D=S.staff?adb:db;sessionStorage.g=1;const d=new Date().toISOString().slice(0,10).replace(/-/g,''),inc=p=>D.ref('lib/stats/'+p).transaction(x=>(x||0)+1);inc('total');inc('d/'+d)}catch(e){}}
 /* ---------- tìm kiếm / lọc ---------- */
@@ -177,7 +182,7 @@ const pageView=s=>{const p=S.pages[s]||(DP[s]&&{title:DP[s][0],body:DP[s][1]});i
 const U=p=>db.ref('libUser/'+S.stu.uid+'/'+p);
 function toggleFav(id){if(!S.stu)return;(me().fav||{})[id]?U('fav/'+id).remove():U('fav/'+id).set(1)}
 function setSt(id,v){if(!S.stu)return;(me().st||{})[id]==v?U('st/'+id).remove():U('st/'+id).set(v)}
-function setSid(v){S.stu.sid=v;try{localStorage.gl_lsid=v}catch(e){}route(1)}
+function setSid(v){S.stu.sid=v;S.books=visBooks();try{localStorage.gl_lsid=v}catch(e){}route(1)}
 async function addNote(bid,f){const tx=f.tx.value.trim();if(!tx)return false;try{await U('notes/'+bid).push({tx,pg:f.pg.value.trim(),t:Date.now()});f.reset();toast('Đã lưu ghi chú')}catch(e){toast('Lỗi: '+e.message)}return false}
 function editNote(bid,k){const n=notesOf(bid).find(x=>x.k==k);modal('Sửa ghi chú',[['tx','Nội dung','t'],['pg','Trang']],n,async v=>{if(!v.tx.trim())throw Error('Nội dung trống');await U('notes/'+bid+'/'+k).update({tx:v.tx.trim(),pg:v.pg||''})})}
 function delNote(bid,k){if(confirm('Xóa ghi chú này?'))U('notes/'+bid+'/'+k).remove()}
@@ -189,7 +194,7 @@ const HLC=['#ffe14d','#7ee787','#ff9ec4','#79c0ff'],LJ={},PJ='https://cdnjs.clou
 let PD=null,PB=null,PZ=1,PN=1,pgs=[],pio=null,pdfOK=false,hlc=0,erase=false,pen=false,cs=null,pst=0;
 const loadJs=u=>LJ[u]||(LJ[u]=new Promise((ok,no)=>{const e=document.createElement('script');e.src=u;e.onload=ok;e.onerror=()=>{delete LJ[u];no(Error('Không tải được thư viện'))};document.head.append(e)}));
 const hls=id=>Object.entries(((me().hl||{})[id])||{}).map(([k,v])=>({k,...v}));
-$('#rd').innerHTML=`<div class="tb"><button class="ib" style="background:#fff2;border:0;color:#fff" onclick="closeRd()">${I('x')}</button><b id="rt"></b><span id="rtm" class="tm"></span><span id="rpt"><button class="btn s l" onclick="pz(-.15)">−</button> <button class="btn s l" onclick="pz(.15)">+</button> <span id="rpn" class="tm"></span></span><span id="rhc">${HLC.map((c,i)=>`<i class="sw" style="background:${c}" onclick="hlc=${i};erase=false;swU()"></i>`).join('')}<button class="btn s l" id="bpen" title="Tô tự do như bút dạ quang" onclick="pen=!pen;if(pen)erase=false;swU()">✎ Bút tô</button><button class="btn s l" id="ber" onclick="erase=!erase;if(erase)pen=false;swU()">Xóa HL</button></span><button class="btn s l" onclick="$('#rpdf').classList.toggle('inv')">Tối</button><button class="btn s l" id="rdl" onclick="dlPdf()">${I('dl',16)} Tải PDF</button><button class="btn s l" onclick="setSt(cur.id,'done');toast('Đã đánh dấu đã đọc')">${I('check',16)}</button><button class="btn s" onclick="document.querySelector('.rb').classList.toggle('n');rdNotes()">${I('note',16)} Ghi chú</button><a class="btn s l" id="ro" target="_blank" rel="noopener">${I('ext',16)}</a></div><div class="rb"><div id="rpdf"></div><iframe id="rf" allow="fullscreen" hidden></iframe><aside id="rn"></aside></div>`;
+$('#rd').innerHTML=`<div class="tb"><button class="ib" style="background:#fff2;border:0;color:#fff" onclick="closeRd()">${I('x')}</button><b id="rt"></b><span id="rtm" class="tm"></span><span id="rpt"><button class="btn s l" onclick="pz(-.15)">−</button> <button class="btn s l" onclick="pz(.15)">+</button> <span id="rpn" class="tm"></span></span><span id="rhc">${HLC.map((c,i)=>`<i class="sw" style="background:${c}" onclick="hlc=${i};erase=false;swU()"></i>`).join('')}<button class="btn s l" id="bpen" title="Tô tự do như bút dạ quang" onclick="pen=!pen;if(pen)erase=false;swU()">✎ Bút tô</button><button class="btn s l" id="ber" onclick="erase=!erase;if(erase)pen=false;swU()">Xóa HL</button></span><button class="btn s l" onclick="$('#rpdf').classList.toggle('inv')">Tối</button><button class="btn s l" id="rdl" onclick="dlPdf()">${I('dl',16)} Tải PDF</button><button class="btn s l" onclick="setSt(cur.id,'done');toast('Đã đánh dấu đã đọc')">${I('check',16)}</button><button class="btn s" onclick="document.querySelector('.rb').classList.toggle('n');rdNotes()">${I('note',16)} Ghi chú</button></div><div class="rb"><div id="rpdf"></div><iframe id="rf" allow="fullscreen" hidden></iframe><aside id="rn"></aside></div>`;
 $('#rpdf').addEventListener('click',e=>{const k=e.target.dataset&&e.target.dataset.k;if(erase&&k&&cur)U('hl/'+cur.id+'/'+k).remove()});
 function swU(){document.querySelectorAll('#rhc .sw').forEach((e,i)=>e.classList.toggle('on',!erase&&i==hlc));$('#ber').classList.toggle('on',erase);$('#bpen').classList.toggle('on',pen&&!erase);$('#rpdf').classList.toggle('er',erase);$('#rpdf').classList.toggle('pen',pen&&!erase)}
 function uiMode(b){['#rpt','#rhc'].forEach(x=>$(x).hidden=!pdfOK||(x=='#rhc'&&!S.stu));$('#rdl').hidden=!pdfOK||b.dl=='0';swU()}
@@ -228,7 +233,7 @@ hls(cur.id).forEach(x=>{const pg=P[x.p-1];if(!pg)return;const z=pg.getSize();(x.
 if(x.pts&&x.pts.length>1){const W=z.width,col=rg(HLC[x.c]||HLC[0]),bw=(+x.w||LW)*W;try{pg.drawSvgPath('M'+x.pts.map(q=>((+q[0]||0)*W).toFixed(2)+' '+((+q[1]||0)*W).toFixed(2)).join(' L'),{x:0,y:z.height,borderColor:col,borderWidth:bw,borderOpacity:.4,borderLineCap:LineCapStyle.Round})}catch(e){for(let i=1;i<x.pts.length;i++)pg.drawLine({start:{x:x.pts[i-1][0]*W,y:z.height-x.pts[i-1][1]*W},end:{x:x.pts[i][0]*W,y:z.height-x.pts[i][1]*W},thickness:bw,color:col,opacity:.4,lineCap:LineCapStyle.Round})}}});
 const u=await doc.save(),a=document.createElement('a');a.href=URL.createObjectURL(new Blob([u],{type:'application/pdf'}));a.download=(b.title||'tai-lieu').replace(/[\\/:*?"<>|]+/g,' ')+' (highlight).pdf';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),4e3);if(S.stu)db.ref('libLogs').push({t:Date.now(),uid:S.stu.uid,sid:S.stu.sid,n:curName(),b:b.id,bt:b.title,ev:'download'})}catch(e){toast('Không tạo được file: '+e.message)}}
 function rdNotes(){if(!cur)return;pgs.forEach(p=>drawHl(p));if($('.rb').classList.contains('n'))$('#rn').innerHTML=`<h3 style="margin-bottom:10px">Highlight (${hls(cur.id).length})</h3>`+hls(cur.id).sort((a,b)=>a.p-b.p||a.t-b.t).map(x=>`<div class="nt" style="border-left:4px solid ${HLC[x.c]||HLC[0]}"><p>${x.tx?E(x.tx):'<i>✎ Nét tô tay</i>'}</p><small>Trang ${x.p} · <a onclick="jmp(${x.p})">Đến trang</a> · <a onclick="U('hl/${cur.id}/${x.k}').remove()">Xóa</a></small></div>`).join('')+`<h3 style="margin:16px 0 12px">Ghi chú</h3>`+noteBox(cur.id)}
-async function openRd(id){const b=S.books.find(x=>x.id==id);if(!b||!b.url)return;$('#rt').textContent=b.title;$('#ro').href=b.url;$('#rd').classList.add('o');$('.rb').classList.remove('n');
+async function openRd(id){const b=S.books.find(x=>x.id==id);if(!b||!b.url||!canSee(b))return;$('#rt').textContent=b.title;$('#rd').classList.add('o');$('.rb').classList.remove('n');
 cur={id,t:Date.now(),k:null};clearInterval(tmr);tmr=setInterval(()=>{const s=Math.floor((Date.now()-cur.t)/1000);$('#rtm').textContent=String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')},1000);
 (S.staff?adb:db).ref('lib/books/'+id+'/reads').transaction(x=>(x||0)+1);
 if(S.stu){U('hist/'+id).set(Date.now());if((me().st||{})[id]!='done')U('st/'+id).set('read');cur.k=db.ref('libLogs').push({t:Date.now(),uid:S.stu.uid,sid:S.stu.sid,n:curName(),b:id,bt:b.title,ev:'read'}).key}
@@ -289,12 +294,13 @@ function loginView(){return`<section class="hero" style="min-height:100vh;displa
 async function outAll(){clearInterval(devT);devTick=null;const k=lkGet();try{const u=auth.currentUser;if(u){const r=db.ref('libSess/'+u.uid+'/'+devId());r.onDisconnect().cancel();await r.remove()}}catch(e){}
 lkSet(null);if(k&&k.by==='pwd')auth.signOut();else{S.stu=null;afterAuth()}aauth.signOut();location.hash='#/'}
 function afterAuth(){S.ready=false;route(1);load();hit()}
+const lockView=()=>`<section class="hero" style="min-height:100vh;display:grid;align-items:center"><div class="w c" style="max-width:520px"><img src="${LG()}" width="84" style="border-radius:22px"><h1 style="margin-top:16px">Tài khoản Library đã bị khóa</h1><p style="margin:12px auto">Em chưa vào được GeoLibrary lúc này. Ứng dụng học sinh vẫn dùng bình thường. Em liên hệ cô/trợ giảng để được mở lại.</p><button class="btn big" style="background:#fff;color:var(--pr2)" onclick="outAll()">Đăng xuất</button></div></section>`;
 /* ---------- router ---------- */
 let lastH='';
 function route(force){if(!S.ready){$('#app').innerHTML='<div class="c" style="padding:120px 20px"><img src="'+LG()+'" width="84" style="border-radius:22px;animation:fl 3s infinite"><p class="mu">Đang tải GeoLibrary...</p></div>';return}
 const ae=document.activeElement;if(!force&&ae&&/INPUT|TEXTAREA|SELECT/.test(ae.tagName)&&$('#app').contains(ae))return;
 const h=location.hash.slice(2),[p,q]=h.split('?'),P=new URLSearchParams(q||''),sg=p.split('/');let v;
-if(!S.stu&&!S.staff)v=loginView();else switch(sg[0]){case'me':v=shelf();break;case'notes':v=notesPage();break;case'request':v=reqPage();break;case'cats':v=catsPage();break;case'cat':v=catPage(sg[1],P);break;case'search':v=results(P);break;case'adv':v=adv();break;case'new':v=newMat(P);break;case'top':v=topPg(P);break;case'book':v=book(sg[1]);break;case'news':v=newsList(P);break;case'n':v=newsOne(sg[1]);break;case'p':v=pageView(sg[1]);break;case'admin':v=adminMoved();break;case'hl':v=hlPage();break;default:v=home()}
+if(!S.stu&&!S.staff)v=loginView();else if(S.libLocked&&!S.staff)v=lockView();else switch(sg[0]){case'me':v=shelf();break;case'notes':v=notesPage();break;case'request':v=reqPage();break;case'cats':v=catsPage();break;case'cat':v=catPage(sg[1],P);break;case'search':v=results(P);break;case'adv':v=adv();break;case'new':v=newMat(P);break;case'top':v=topPg(P);break;case'book':v=book(sg[1]);break;case'news':v=newsList(P);break;case'n':v=newsOne(sg[1]);break;case'p':v=pageView(sg[1]);break;case'admin':v=adminMoved();break;case'hl':v=hlPage();break;default:v=home()}
 $('#app').innerHTML=v;if(location.hash!=lastH){window.scrollTo(0,0);lastH=location.hash;S.bt='info'}}
 try{if(/[?&]w=/.test(location.search))history.replaceState(null,'',location.pathname+location.hash)}catch(e){}
 addEventListener('hashchange',()=>route(1));
@@ -303,5 +309,6 @@ if(u&&!lkOk(u)){afterAuth();return}
 if(!u&&retMsg==='ok'){S.err='Chưa nhận được đăng nhập từ app. Em hãy đăng nhập app trước (app và thư viện cần cùng tên miền geolibrary26.github.io).';retMsg=''}
 if(u){try{S.stu=await stuCheck(u);S.err=''}catch(e){S.err=/permission/i.test(e.message||'')?'Hệ thống chưa cấp quyền đọc dữ liệu (Rules Firebase). Em báo cô/trợ giảng nhé.':e.message}}afterAuth()});
 db.ref('public/brand').get().then(x=>{const v=x.val();if(v){BR=v;const l=document.querySelector('link[rel=icon]');if(l&&v.logo)l.href=v.logo;route()}}).catch(()=>{});
+setInterval(()=>{if(S.raw){const n=visBooks();if(n.length!=S.books.length){S.books=n;route()}}},60000);
 route();
 </script></body></html>
